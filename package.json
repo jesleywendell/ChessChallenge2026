@@ -1,0 +1,44 @@
+{
+  "name": "chess-challenge-2026",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Assistente de xadrez para o Chess Challenge III (ICEV 2026): Stockfish + camada própria de abertura, tempo e ponder.",
+  "scripts": {
+    "dev": "concurrently -k -n server,web -c blue,green \"npm:dev:server\" \"npm:dev:web\"",
+    "dev:server": "tsx watch src/server/main.ts",
+    "dev:web": "vite",
+    "build": "vite build",
+    "start": "tsx src/server/main.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check .",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm run lint && npm run test"
+  },
+  "dependencies": {
+    "@fastify/static": "^10.1.5",
+    "@fastify/websocket": "^11.3.3",
+    "chess.js": "^1.4.0",
+    "fastify": "^5.12.5",
+    "pino": "^10.4.0",
+    "react": "^19.3.0",
+    "react-chessboard": "^5.12.1",
+    "react-dom": "^19.3.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.15",
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^26.6.4",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/ws": "^8.18.2",
+    "@vitejs/plugin-react": "^6.1.2",
+    "concurrently": "^10.0.5",
+    "tailwindcss": "^4.3.3",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.3",
+    "vitest": "^5.0.3"
+  }
+}
