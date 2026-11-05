@@ -39,7 +39,28 @@ export type EnginePort = {
     limits: SearchLimits,
     onProgress?: (progress: SearchProgress) => void,
   ) => SearchHandle;
-  restart: () => Promise<void>;
+  /** Reinicia o processo. `level` > 0 usa menos threads e hash (modo degradado). */
+  restart: (level?: PowerLevel) => Promise<void>;
+  readonly powerLevel: PowerLevel;
+};
+
+/** 0 = potência total, 1 = metade das threads e 1/4 do hash, 2 = modo seguro (1 thread, 16 MB). */
+export type PowerLevel = 0 | 1 | 2;
+
+const SAFE_MODE_HASH_MB = 16;
+
+export const resourcesForLevel = (
+  config: Pick<EngineConfig, "threads" | "hashMb">,
+  level: PowerLevel,
+): { threads: number; hashMb: number } => {
+  if (level === 0) return { threads: config.threads, hashMb: config.hashMb };
+  if (level === 1) {
+    return {
+      threads: Math.max(1, Math.floor(config.threads / 2)),
+      hashMb: Math.max(SAFE_MODE_HASH_MB, Math.floor(config.hashMb / 4)),
+    };
+  }
+  return { threads: 1, hashMb: SAFE_MODE_HASH_MB };
 };
 
 export class EngineCrashedError extends Error {
@@ -93,6 +114,7 @@ export class StockfishEngine implements EnginePort {
   #generation = 0;
   #onMessage: ((message: UciMessage) => void) | null = null;
   #onExit: ((details: UciProcessExit) => void) | null = null;
+  #powerLevel: PowerLevel = 0;
 
   constructor(
     private readonly config: EngineConfig,
@@ -107,10 +129,15 @@ export class StockfishEngine implements EnginePort {
     return this.#starting;
   }
 
-  restart(): Promise<void> {
+  get powerLevel(): PowerLevel {
+    return this.#powerLevel;
+  }
+
+  restart(level: PowerLevel = 0): Promise<void> {
     this.#supersedeLatestSearch();
     return this.#enqueue(async () => {
       this.#killProcess();
+      this.#powerLevel = level;
       await this.start();
     });
   }
@@ -193,18 +220,16 @@ export class StockfishEngine implements EnginePort {
     try {
       this.#send("uci");
       await this.#awaitMessage("uciok", HANDSHAKE_TIMEOUT_MS);
-      this.#send(`setoption name Threads value ${this.config.threads}`);
-      this.#send(`setoption name Hash value ${this.config.hashMb}`);
+      const { threads, hashMb } = resourcesForLevel(this.config, this.#powerLevel);
+      this.#send(`setoption name Threads value ${threads}`);
+      this.#send(`setoption name Hash value ${hashMb}`);
       this.#send("setoption name MultiPV value 1");
       if (this.config.syzygyPath) {
         this.#send(`setoption name SyzygyPath value ${this.config.syzygyPath}`);
       }
       this.#send("isready");
       await this.#awaitMessage("readyok", HANDSHAKE_TIMEOUT_MS);
-      this.logger.info(
-        { threads: this.config.threads, hashMb: this.config.hashMb },
-        "engine-ready",
-      );
+      this.logger.info({ threads, hashMb, powerLevel: this.#powerLevel }, "engine-ready");
     } catch (error) {
       this.#killProcess();
       throw error;

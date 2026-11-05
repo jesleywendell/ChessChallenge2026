@@ -101,3 +101,15 @@ describe("principalVariationToSan", () => {
     expect(principalVariationToSan(fen, ["e2e4", "e2e4", "g1f3"])).toEqual(["e4"]);
   });
 });
+
+describe("castling input", () => {
+  it.each(["O-O", "0-0", "o-o", "oo", "e1g1", "e1h1"])("accepts %s as short castling", (input) => {
+    const chess = new Chess("r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1");
+    expect(playMove(chess, input).san).toBe("O-O");
+  });
+
+  it.each(["O-O-O", "0-0-0", "o-o-o", "e1c1", "e1a1"])("accepts %s as long castling", (input) => {
+    const chess = new Chess("r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1");
+    expect(playMove(chess, input).san).toBe("O-O-O");
+  });
+});

@@ -4,6 +4,13 @@ import { Chessboard } from "react-chessboard";
 import { type Color, type GameSnapshot, oppositeColor } from "../../shared/protocol";
 import { sendMessage } from "../game-connection";
 
+const KING_ONTO_ROOK_TARGET: Record<string, string> = {
+  e1h1: "g1",
+  e1a1: "c1",
+  e8h8: "g8",
+  e8a8: "c8",
+};
+
 type PromotionPiece = "q" | "r" | "b" | "n";
 type MoveAttempt = "sent" | "awaiting-promotion" | "illegal";
 type LocalMoveState = {
@@ -108,7 +115,13 @@ export function BoardPanel({ snapshot, ourColor, flipped, errorId }: BoardPanelP
     sendMessage({ type: "opponent-move", move: `${from}${to}${promotion ?? ""}` });
   };
 
-  const attemptMove = (from: string, to: string): MoveAttempt => {
+  const attemptMove = (from: string, rawTo: string): MoveAttempt => {
+    // Rei arrastado/clicado em cima da própria torre = roque para aquele lado.
+    const castleTarget = KING_ONTO_ROOK_TARGET[`${from}${rawTo}`];
+    const to =
+      castleTarget && legalMoves.some((move) => move.from === from && move.to === castleTarget)
+        ? castleTarget
+        : rawTo;
     const candidates = legalMoves.filter((move) => move.from === from && move.to === to);
     if (candidates.length === 0) return "illegal";
     if (candidates.some((move) => move.promotion)) {

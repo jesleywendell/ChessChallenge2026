@@ -2,8 +2,13 @@ import { Chess, type Move } from "chess.js";
 import type { Logger } from "pino";
 import { buildOpeningBook, type OpeningBook, pickBookMove } from "../engine/opening-book";
 import { OPENING_LINES } from "../engine/opening-lines";
-import type { EnginePort, SearchHandle, SearchProgress } from "../engine/stockfish-engine";
-import { computeThinkBudget, creditPonderTime } from "../engine/time-budget";
+import type {
+  EnginePort,
+  PowerLevel,
+  SearchHandle,
+  SearchProgress,
+} from "../engine/stockfish-engine";
+import { computeThinkBudget, creditPonderTime, scaleBudget } from "../engine/time-budget";
 import {
   COLOR_BY_TURN,
   detectResult,
@@ -62,7 +67,16 @@ type Phase = GameSnapshot["phase"];
 const OK: ActionResult = { ok: true };
 const NO_PONDER: PonderOutcome = { hit: false, elapsedMs: 0 };
 const READY: EngineStatus = { state: "ready", message: null };
-const ENGINE_ATTEMPTS = 2;
+/**
+ * Cada nova tentativa após falha reinicia o motor com menos recursos e menos tempo:
+ * 1ª normal; 2ª metade das threads e metade do tempo; 3ª modo seguro (1 thread) e
+ * 20% do tempo. Se todas falharem, lance de emergência.
+ */
+const RETRY_PLAN: readonly { level: PowerLevel; budgetFactor: number }[] = [
+  { level: 0, budgetFactor: 1 },
+  { level: 1, budgetFactor: 0.5 },
+  { level: 2, budgetFactor: 0.2 },
+];
 const NO_SEARCH = { depth: null, scoreCp: null, mateIn: null, ponderMove: null } as const;
 
 const fail = (message: string): ActionResult => ({ ok: false, message });
@@ -87,6 +101,7 @@ export class GameSession {
   #epoch = 0;
   #thinking: SearchHandle | null = null;
   #ponder: PonderState | null = null;
+  #budgetFactor = 1;
 
   #snapshotListeners = new Set<(snapshot: GameSnapshot) => void>();
   #progressListeners = new Set<(progress: EngineProgress) => void>();
@@ -143,6 +158,7 @@ export class GameSession {
 
     await this.#prepareEngineForNewGame();
     if (epoch !== this.#epoch) return OK;
+    this.#budgetFactor = 1;
 
     if (config.ourColor === "white") void this.#runEngineTurn();
     return OK;
@@ -279,6 +295,7 @@ export class GameSession {
 
   async #prepareEngineForNewGame(): Promise<void> {
     try {
+      if (this.#engine.powerLevel !== 0) await this.#engine.restart(0);
       await this.#engine.newGame();
     } catch (error) {
       this.#logger.error({ err: error }, "engine-new-game-failed");
@@ -310,13 +327,28 @@ export class GameSession {
   }
 
   async #decideWithRecovery(epoch: number): Promise<EngineDecision | null> {
-    for (let attempt = 1; attempt <= ENGINE_ATTEMPTS; attempt += 1) {
+    // Se um turno anterior já precisou degradar, começa daquele nível: estabilidade
+    // vale mais que força, porque travar é derrota.
+    const firstStep = Math.max(
+      0,
+      RETRY_PLAN.findIndex((step) => step.level === this.#engine.powerLevel),
+    );
+    for (let index = firstStep; index < RETRY_PLAN.length; index += 1) {
+      const step = RETRY_PLAN[index];
+      if (!step) break;
+      this.#budgetFactor = step.budgetFactor;
       try {
         return await this.#decide(epoch);
       } catch (error) {
-        this.#logger.error({ err: error, attempt }, "engine-decision-failed");
+        this.#logger.error({ err: error, attempt: index + 1 }, "engine-decision-failed");
         if (epoch !== this.#epoch) return null;
-        await this.#engine.restart().catch((restartError) => {
+        const next = RETRY_PLAN[index + 1];
+        if (!next) break;
+        this.#setEngineStatus({
+          state: "thinking",
+          message: `Motor falhou; nova tentativa com potência reduzida (${index + 2}/${RETRY_PLAN.length}).`,
+        });
+        await this.#engine.restart(next.level).catch((restartError) => {
           this.#logger.error({ err: restartError }, "engine-restart-failed");
         });
       }
@@ -357,11 +389,14 @@ export class GameSession {
     }
 
     const nowMs = this.#now();
-    const budget = computeThinkBudget({
-      remainingMs: remainingMs(this.#clock, config.ourColor, nowMs),
-      fullmoveNumber: Math.floor(this.#moves.length / 2) + 1,
-      humanOverheadMs: config.humanOverheadMs,
-    });
+    const budget = scaleBudget(
+      computeThinkBudget({
+        remainingMs: remainingMs(this.#clock, config.ourColor, nowMs),
+        fullmoveNumber: Math.floor(this.#moves.length / 2) + 1,
+        humanOverheadMs: config.humanOverheadMs,
+      }),
+      this.#budgetFactor,
+    );
     const limits = ponderOutcome.hit ? creditPonderTime(budget, ponderOutcome.elapsedMs) : budget;
 
     const handle = this.#engine.search(
@@ -391,6 +426,7 @@ export class GameSession {
         softMs: limits.softMs,
         hardMs: limits.hardMs,
         ponderHit: ponderOutcome.hit,
+        powerLevel: this.#engine.powerLevel,
         ponderedMs: Math.round(ponderOutcome.elapsedMs),
       },
       "search-finished",
@@ -449,7 +485,9 @@ export class GameSession {
     this.#engineStatus =
       decision.source === "emergency"
         ? { state: "error", message: "Stockfish falhou: lance de emergência jogado." }
-        : READY;
+        : this.#engine.powerLevel > 0
+          ? { state: "ready", message: "Motor em modo reduzido após falha (mais estável)." }
+          : READY;
     this.#publish();
 
     if (this.#phase === "playing") this.#startPonder(decision.ponderMove);

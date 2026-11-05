@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeThinkBudget, creditPonderTime } from "./time-budget";
+import { computeThinkBudget, creditPonderTime, scaleBudget } from "./time-budget";
 
 const FULL_CLOCK_MS = 25 * 60 * 1000;
 
@@ -77,5 +77,43 @@ describe("creditPonderTime", () => {
 
     expect(credited.softMs).toBe(500);
     expect(credited.hardMs).toBe(1_000);
+  });
+});
+
+describe("long games", () => {
+  const simulate = (pick: (budget: { softMs: number; hardMs: number }) => number): number => {
+    const humanOverheadMs = 5_000;
+    let remaining = FULL_CLOCK_MS;
+    for (let fullmoveNumber = 1; fullmoveNumber <= 200; fullmoveNumber += 1) {
+      const budget = computeThinkBudget({
+        remainingMs: remaining,
+        fullmoveNumber,
+        humanOverheadMs,
+      });
+      remaining -= pick(budget) + humanOverheadMs;
+      if (remaining <= 0) return fullmoveNumber;
+    }
+    return 200;
+  };
+
+  it("survives past move 100 even when every search runs to the hard limit", () => {
+    expect(simulate((budget) => budget.hardMs)).toBeGreaterThan(100);
+  });
+
+  it("survives past move 110 when searches stop midway between soft and hard", () => {
+    expect(simulate((budget) => (budget.softMs + budget.hardMs) / 2)).toBeGreaterThan(110);
+  });
+});
+
+describe("scaleBudget", () => {
+  it("shrinks both limits but keeps the panic floor", () => {
+    expect(scaleBudget({ softMs: 20_000, hardMs: 50_000 }, 0.5)).toEqual({
+      softMs: 10_000,
+      hardMs: 25_000,
+    });
+    expect(scaleBudget({ softMs: 400, hardMs: 1_000 }, 0.1)).toEqual({
+      softMs: 300,
+      hardMs: 1_000,
+    });
   });
 });

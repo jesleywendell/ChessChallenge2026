@@ -29,11 +29,34 @@ const toMoveInput = (text: string): MoveInput => {
     : { from: from.toLowerCase(), to: to.toLowerCase() };
 };
 
-/** Aceita lance em UCI ("e2e4", "e7e8q") ou SAN ("Nf3", "O-O"). */
+/** Rei "em cima da torre" (e1h1, e1a1, e8h8, e8a8) vira o roque correspondente. */
+const KING_ONTO_ROOK: Record<string, string> = {
+  e1h1: "O-O",
+  e1a1: "O-O-O",
+  e8h8: "O-O",
+  e8a8: "O-O-O",
+};
+
+const castlingAlias = (text: string): string | null => {
+  const normalized = text.trim().toLowerCase().replaceAll("0", "o");
+  if (normalized === "o-o" || normalized === "oo") return "O-O";
+  if (normalized === "o-o-o" || normalized === "ooo") return "O-O-O";
+  return KING_ONTO_ROOK[normalized] ?? null;
+};
+
+/** Aceita lance em UCI ("e2e4", "e7e8q") ou SAN ("Nf3", "O-O", "0-0", "o-o", "e1h1"). */
 export const playMove = (chess: Chess, text: string): Move => {
   try {
     return chess.move(toMoveInput(text));
   } catch {
+    const alias = castlingAlias(text);
+    if (alias) {
+      try {
+        return chess.move(alias);
+      } catch {
+        // cai no erro abaixo
+      }
+    }
     throw new IllegalMoveError(text);
   }
 };
