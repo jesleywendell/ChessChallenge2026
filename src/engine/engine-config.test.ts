@@ -9,15 +9,17 @@ import {
 const GIGABYTE = 1024 ** 3;
 
 describe("resolveHashMb", () => {
-  it("uses an eighth of the RAM rounded down to a power of two", () => {
+  it("uses an eighth of the RAM rounded down to a power of two, between 1 and 4 GB", () => {
     expect(resolveHashMb(8 * GIGABYTE)).toBe(1024);
     expect(resolveHashMb(16 * GIGABYTE)).toBe(2048);
     expect(resolveHashMb(24 * GIGABYTE)).toBe(2048);
+    expect(resolveHashMb(64 * GIGABYTE)).toBe(4096);
+    expect(resolveHashMb(512 * GIGABYTE)).toBe(4096);
   });
 
-  it("keeps the hash within sane bounds", () => {
-    expect(resolveHashMb(GIGABYTE / 2)).toBe(64);
-    expect(resolveHashMb(512 * GIGABYTE)).toBe(8192);
+  it("never takes more than a quarter of a small machine's RAM", () => {
+    expect(resolveHashMb(2 * GIGABYTE)).toBe(512);
+    expect(resolveHashMb(GIGABYTE / 8)).toBe(64);
   });
 });
 

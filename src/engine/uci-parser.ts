@@ -8,6 +8,8 @@ export type UciInfo = {
   nodes: number;
   nodesPerSecond: number;
   timeMs: number;
+  /** Índice da linha com MultiPV > 1 (1 = melhor lance). */
+  multipv: number;
   principalVariation: string[];
 };
 
@@ -52,6 +54,7 @@ const parseInfo = (tokens: string[]): UciMessage | null => {
       nodes: readNumber(tokens, "nodes") ?? 0,
       nodesPerSecond: readNumber(tokens, "nps") ?? 0,
       timeMs: readNumber(tokens, "time") ?? 0,
+      multipv: readNumber(tokens, "multipv") ?? 1,
       principalVariation: tokens.slice(pvIndex + 1),
     },
   };

@@ -33,6 +33,7 @@ const main = async () => {
     engine,
     store: createFileGameStore(SAVED_GAME_PATH, logger),
     logger: logger.child({ component: "session" }),
+    antiDraw: process.env.ANTI_DRAW !== "0",
   });
   await session.restoreFromDisk();
 
@@ -75,7 +76,16 @@ const main = async () => {
     logger.warn("web-build-missing: rode `npm run build` ou use `npm run dev`");
   }
 
-  await app.listen({ port: PORT, host: HOST });
+  try {
+    await app.listen({ port: PORT, host: HOST });
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "EADDRINUSE") {
+      logger.fatal(
+        `A porta ${PORT} já está em uso: provavelmente outro servidor do Chess Challenge está aberto. Feche a outra janela (ou o outro npm start) e tente de novo.`,
+      );
+    }
+    throw error;
+  }
   logger.info({ url: `http://${HOST}:${PORT}` }, "server-listening");
 
   const shutdown = () => {

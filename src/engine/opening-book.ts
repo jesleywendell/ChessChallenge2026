@@ -54,3 +54,21 @@ export const pickBookMove = (
   }
   return entries.at(-1)?.uci ?? null;
 };
+
+export type GeneratedBook = Partial<Record<Color, Record<string, string>>>;
+
+/**
+ * Junta o livro gerado offline pelo Stockfish (scripts/gerar-livro.ts) ao livro escrito à
+ * mão. Onde os dois cobrem a mesma posição, vale o gerado.
+ */
+export const withGeneratedBook = (
+  book: OpeningBook,
+  generated: GeneratedBook,
+  ourColor: Color,
+): OpeningBook => {
+  const merged = new Map(book);
+  for (const [key, uci] of Object.entries(generated[ourColor] ?? {})) {
+    merged.set(key, [{ uci, weight: 1 }]);
+  }
+  return merged;
+};

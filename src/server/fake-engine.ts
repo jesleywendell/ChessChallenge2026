@@ -3,11 +3,18 @@ import type {
   PowerLevel,
   SearchHandle,
   SearchLimits,
+  SearchLine,
   SearchResult,
 } from "../engine/stockfish-engine";
 
 export type FakeOutcome =
-  | { bestMove: string; ponderMove?: string; depth?: number; scoreCp?: number }
+  | {
+      bestMove: string;
+      ponderMove?: string;
+      depth?: number;
+      scoreCp?: number;
+      lines?: SearchLine[];
+    }
   | { error: Error }
   | { hang: true };
 
@@ -23,6 +30,7 @@ const baseResult = (overrides: Partial<SearchResult>): SearchResult => ({
   elapsedMs: 0,
   principalVariation: [],
   stopReason: "requested",
+  lines: [],
   ...overrides,
 });
 
@@ -69,6 +77,7 @@ export class FakeEngine implements EnginePort {
           ponderMove: outcome.ponderMove ?? null,
           depth: outcome.depth ?? 20,
           scoreCp: outcome.scoreCp ?? 25,
+          lines: outcome.lines ?? [],
           elapsedMs: 1_000,
           stopReason: "soft-stable",
         }),

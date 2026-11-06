@@ -39,10 +39,10 @@ const memoryStore = (): GameStore => {
 describe.skipIf(!engineConfig)("GameSession with a real Stockfish", () => {
   const logger = pino({ level: "silent" });
   const engine = new StockfishEngine(
-    engineConfig ?? { binaryPath: "", threads: 1, hashMb: 16, syzygyPath: null },
+    engineConfig ?? { binaryPath: "", threads: 1, hashMb: 16, syzygyPath: null, multiPv: 1 },
     logger,
   );
-  const session = new GameSession({ engine, store: memoryStore(), logger });
+  const session = new GameSession({ engine, store: memoryStore(), logger, generatedBook: {} });
 
   afterAll(() => {
     session.dispose();

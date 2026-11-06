@@ -18,7 +18,7 @@ const TEST_TIMEOUT_MS = 20_000;
 
 describe.skipIf(!engineConfig)("StockfishEngine with a real Stockfish binary", () => {
   const engine = new StockfishEngine(
-    engineConfig ?? { binaryPath: "", threads: 1, hashMb: 16, syzygyPath: null },
+    engineConfig ?? { binaryPath: "", threads: 1, hashMb: 16, syzygyPath: null, multiPv: 1 },
     pino({ level: "silent" }),
   );
 
