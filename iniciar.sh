@@ -50,9 +50,14 @@ else
   echo "AVISO: tablebases Syzygy não encontradas em ~/syzygy. Rode ./baixar-syzygy.sh"
 fi
 
-# ---------- Opções (descomente para usar) ----------
-# export ENGINE_THREADS=10
-# export ENGINE_HASH_MB=2048
+# ---------- Configuração do motor no Mac da competição ----------
+# Equivale a: ENGINE_HASH_MB=1024 ENGINE_THREADS=8 npm start
+# (para testar outro valor sem editar: ENGINE_THREADS=4 ./iniciar.sh)
+export ENGINE_THREADS="${ENGINE_THREADS:-8}"
+export ENGINE_HASH_MB="${ENGINE_HASH_MB:-1024}"
+say "Motor: $ENGINE_THREADS threads, hash $ENGINE_HASH_MB MB"
+
+# ---------- Outras opções (descomente para usar) ----------
 # export ANTI_DRAW=0          # desliga o anti-empate
 # export ENGINE_MULTIPV=3
 

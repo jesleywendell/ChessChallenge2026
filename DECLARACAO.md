@@ -10,6 +10,7 @@
 | Publicação | 05/09/2026 |
 | Como é usado | Processo separado, falando o protocolo UCI. **Nenhuma linha do Stockfish foi copiada nem alterada**: busca e rede neural (NNUE) são dele. |
 | Binário | Em Mac com Apple Silicon (M1 a M4) o build nativo arm64 usa as instruções NEON/dotprod do chip. AVX2/BMI2 são instruções Intel e não se aplicam. O `iniciar.sh` mostra a versão que está rodando, e o log grava a linha `id name`. |
+| Configuração | 8 threads, 1024 MB de hash (`ENGINE_THREADS=8`, `ENGINE_HASH_MB=1024`), MultiPV 3 |
 | Tablebases | Syzygy 3-4-5 peças (dados públicos), lidas pelo próprio Stockfish via `SyzygyPath`. |
 | Bibliotecas | chess.js (regras/legalidade), Fastify, React, Zod, Pino (ver `package.json`). |
 
