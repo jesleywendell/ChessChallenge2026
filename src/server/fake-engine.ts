@@ -1,5 +1,6 @@
 import type {
   EnginePort,
+  PowerLevel,
   SearchHandle,
   SearchLimits,
   SearchResult,
@@ -29,6 +30,8 @@ const baseResult = (overrides: Partial<SearchResult>): SearchResult => ({
 export class FakeEngine implements EnginePort {
   calls: FakeSearchCall[] = [];
   restarts = 0;
+  restartLevels: PowerLevel[] = [];
+  powerLevel: PowerLevel = 0;
   newGames = 0;
   ponderElapsedMs = 20_000;
 
@@ -39,8 +42,10 @@ export class FakeEngine implements EnginePort {
     return Promise.resolve();
   }
 
-  restart(): Promise<void> {
+  restart(level: PowerLevel = 0): Promise<void> {
     this.restarts += 1;
+    this.restartLevels.push(level);
+    this.powerLevel = level;
     return Promise.resolve();
   }
 

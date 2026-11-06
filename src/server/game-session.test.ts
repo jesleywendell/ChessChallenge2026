@@ -275,6 +275,26 @@ describe("GameSession", () => {
       expect(session.getSnapshot().engine.state).toBe("error");
     });
 
+    it("retries with less power and less time after each failure", async () => {
+      let failures = 0;
+      const { session, engine } = setup(() => {
+        failures += 1;
+        return failures <= 2 ? { error: new Error("crash") } : { bestMove: "e7e5" };
+      });
+      await session.startGame(config());
+
+      session.applyOpponentMove("a3");
+      await vi.waitFor(() => expect(moveCount(session)).toBe(2));
+
+      expect(engine.restartLevels).toEqual([1, 2]);
+      const softLimits = engine.calls.map((call) =>
+        call.limits.kind === "adaptive" ? call.limits.softMs : 0,
+      );
+      expect(softLimits[1]).toBeLessThan(softLimits[0] ?? 0);
+      expect(softLimits[2]).toBeLessThan(softLimits[1] ?? 0);
+      expect(session.getSnapshot().moves[1]).toMatchObject({ san: "e5", source: "search" });
+    });
+
     it("recovers after a single failure by retrying the search", async () => {
       let failures = 0;
       const { session } = setup(() => {
