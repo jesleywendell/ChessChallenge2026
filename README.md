@@ -14,7 +14,22 @@ descritas em [docs/MODIFICATIONS.md](docs/MODIFICATIONS.md).
 - Stockfish instalado (macOS: `brew install stockfish`; Windows: baixar o `.exe` em
   stockfishchess.org)
 
-## Rodar
+## No Mac (dia da competição)
+
+```bash
+brew install node stockfish        # uma vez (precisa de internet)
+cd ChessChallenge2026
+chmod +x *.sh *.command            # uma vez, se a pasta veio do Windows
+./baixar-syzygy.sh                 # uma vez: tablebases (~1 GB) em ~/syzygy
+./iniciar.sh                       # ou dois cliques em iniciar.command
+```
+
+O `iniciar.sh` confere Node e Stockfish, reinstala `node_modules` se a pasta veio de outro
+sistema, liga as Syzygy de `~/syzygy`, impede o Mac de dormir, compila a interface e abre o
+navegador. Se o servidor cair, ele reinicia sozinho. Para recompilar a interface depois de mudar
+o código: `rm -rf dist` e rode de novo.
+
+## Rodar (manual)
 
 ```bash
 npm install

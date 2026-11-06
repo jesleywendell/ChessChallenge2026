@@ -21,7 +21,18 @@ export type SearchProgress = {
   principalVariation: string[];
 };
 
+/** Uma linha do MultiPV na última iteração completa (pontuação do ponto de vista de quem joga). */
+export type SearchLine = {
+  multipv: number;
+  depth: number;
+  scoreCp: number | null;
+  mateIn: number | null;
+  principalVariation: string[];
+};
+
 export type SearchResult = SearchProgress & {
+  /** Linhas alternativas (MultiPV), da melhor para a pior. Vazio se MultiPV = 1. */
+  lines: SearchLine[];
   bestMove: string | null;
   ponderMove: string | null;
   stopReason: SearchStopReason;
@@ -98,6 +109,7 @@ const NO_PROGRESS: SearchProgress = {
 
 const emptySearchResult = (stopReason: SearchStopReason): SearchResult => ({
   ...NO_PROGRESS,
+  lines: [],
   bestMove: null,
   ponderMove: null,
   stopReason,
@@ -115,6 +127,7 @@ export class StockfishEngine implements EnginePort {
   #onMessage: ((message: UciMessage) => void) | null = null;
   #onExit: ((details: UciProcessExit) => void) | null = null;
   #powerLevel: PowerLevel = 0;
+  #reportedEngineLines = new Set<string>();
 
   constructor(
     private readonly config: EngineConfig,
@@ -206,6 +219,15 @@ export class StockfishEngine implements EnginePort {
 
     this.#process = spawnUciProcess(this.config.binaryPath, {
       onMessage: (message) => {
+        if (
+          message.kind === "other" &&
+          /^(id name|info string)/.test(message.line) &&
+          !this.#reportedEngineLines.has(message.line)
+        ) {
+          // Versão do binário e avisos do Stockfish (tablebases, rede, arquitetura), uma vez cada.
+          this.#reportedEngineLines.add(message.line);
+          this.logger.info({ line: message.line }, "engine-says");
+        }
         if (isCurrent()) this.#onMessage?.(message);
       },
       onStderr: (line) => this.logger.warn({ line }, "engine-stderr"),
@@ -223,13 +245,23 @@ export class StockfishEngine implements EnginePort {
       const { threads, hashMb } = resourcesForLevel(this.config, this.#powerLevel);
       this.#send(`setoption name Threads value ${threads}`);
       this.#send(`setoption name Hash value ${hashMb}`);
-      this.#send("setoption name MultiPV value 1");
+      const multiPv = this.#powerLevel === 2 ? 1 : this.config.multiPv;
+      this.#send(`setoption name MultiPV value ${multiPv}`);
       if (this.config.syzygyPath) {
         this.#send(`setoption name SyzygyPath value ${this.config.syzygyPath}`);
       }
       this.#send("isready");
       await this.#awaitMessage("readyok", HANDSHAKE_TIMEOUT_MS);
-      this.logger.info({ threads, hashMb, powerLevel: this.#powerLevel }, "engine-ready");
+      this.logger.info(
+        {
+          threads,
+          hashMb,
+          multiPv,
+          syzygyPath: this.config.syzygyPath,
+          powerLevel: this.#powerLevel,
+        },
+        "engine-ready",
+      );
     } catch (error) {
       this.#killProcess();
       throw error;
@@ -273,6 +305,7 @@ export class StockfishEngine implements EnginePort {
     const policy: StopPolicy | null = limits.kind === "adaptive" ? createStopPolicy(limits) : null;
     const startedAtMs = performance.now();
     let latest: SearchProgress = NO_PROGRESS;
+    const linesByIndex = new Map<number, SearchLine>();
     let stopSentAtMs: number | null = null;
     let stopReason: SearchStopReason = "requested";
 
@@ -310,6 +343,16 @@ export class StockfishEngine implements EnginePort {
           const bestMove = info.principalVariation[0];
           if (info.bound !== "exact" || !bestMove) return;
 
+          linesByIndex.set(info.multipv, {
+            multipv: info.multipv,
+            depth: info.depth,
+            scoreCp: info.scoreCp,
+            mateIn: info.mateIn,
+            principalVariation: info.principalVariation,
+          });
+          // Só a linha principal alimenta a política de parada e o progresso.
+          if (info.multipv !== 1) return;
+
           const elapsedMs = performance.now() - startedAtMs;
           latest = {
             depth: info.depth,
@@ -335,8 +378,12 @@ export class StockfishEngine implements EnginePort {
         if (message.kind === "bestmove") {
           finish();
           const [firstMove, secondMove] = latest.principalVariation;
+          const lines = [...linesByIndex.values()]
+            .filter((line) => line.depth >= latest.depth - 1)
+            .sort((a, b) => a.multipv - b.multipv);
           resolve({
             ...latest,
+            lines: lines.length > 1 ? lines : [],
             bestMove: message.move,
             ponderMove:
               message.ponderMove ?? (firstMove === message.move ? (secondMove ?? null) : null),

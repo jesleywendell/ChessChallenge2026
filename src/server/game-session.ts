@@ -1,6 +1,19 @@
 import { Chess, type Move } from "chess.js";
 import type { Logger } from "pino";
-import { buildOpeningBook, type OpeningBook, pickBookMove } from "../engine/opening-book";
+import {
+  chooseAntiDrawMove,
+  DEFAULT_MARGIN_CP,
+  PRESSURE_MARGIN_CP,
+  positionKey,
+} from "../engine/anti-draw";
+import { loadGeneratedBook } from "../engine/generated-book-loader";
+import {
+  buildOpeningBook,
+  type GeneratedBook,
+  type OpeningBook,
+  pickBookMove,
+  withGeneratedBook,
+} from "../engine/opening-book";
 import { OPENING_LINES } from "../engine/opening-lines";
 import type {
   EnginePort,
@@ -49,7 +62,22 @@ type GameSessionDependencies = {
   logger: Logger;
   nowMs?: () => number;
   random?: () => number;
+  /** Desligue com ANTI_DRAW=0. */
+  antiDraw?: boolean;
+  generatedBook?: GeneratedBook;
 };
+
+/**
+ * Vantagem de relógio: se o adversário tem menos de 60% do nosso tempo e menos de 8 min,
+ * jogamos mais rápido (60% do orçamento) e aceitamos lances um pouco piores que mantêm a
+ * posição complicada, para forçar o relógio dele.
+ */
+const PRESSURE_OPPONENT_SHARE = 0.6;
+const PRESSURE_OPPONENT_MAX_MS = 8 * 60_000;
+const PRESSURE_BUDGET_FACTOR = 0.6;
+
+export const hasClockPressure = (ourMs: number, opponentMs: number): boolean =>
+  opponentMs < ourMs * PRESSURE_OPPONENT_SHARE && opponentMs < PRESSURE_OPPONENT_MAX_MS;
 
 type EngineDecision = {
   uci: string;
@@ -87,6 +115,8 @@ export class GameSession {
   #logger: Logger;
   #now: () => number;
   #random: () => number;
+  #antiDraw: boolean;
+  #generatedBook: GeneratedBook;
 
   #phase: Phase = "setup";
   #config: GameConfig | null = null;
@@ -106,7 +136,17 @@ export class GameSession {
   #snapshotListeners = new Set<(snapshot: GameSnapshot) => void>();
   #progressListeners = new Set<(progress: EngineProgress) => void>();
 
-  constructor({ engine, store, logger, nowMs, random }: GameSessionDependencies) {
+  constructor({
+    engine,
+    store,
+    logger,
+    nowMs,
+    random,
+    antiDraw,
+    generatedBook,
+  }: GameSessionDependencies) {
+    this.#antiDraw = antiDraw ?? true;
+    this.#generatedBook = generatedBook ?? loadGeneratedBook();
     this.#engine = engine;
     this.#store = store;
     this.#logger = logger;
@@ -150,7 +190,7 @@ export class GameSession {
     this.#moves = [];
     this.#result = null;
     this.#resumedFromDisk = false;
-    this.#book = buildOpeningBook(OPENING_LINES[config.ourColor], config.ourColor);
+    this.#book = this.#buildBook(config.ourColor);
     this.#clock = startClock(createClock(config.initialClockMs), "white", this.#now());
     this.#engineStatus = READY;
     this.#logger.info({ config }, "game-started");
@@ -273,7 +313,7 @@ export class GameSession {
     this.#config = saved.config;
     this.#chess = chess;
     this.#moves = saved.moves;
-    this.#book = buildOpeningBook(OPENING_LINES[saved.config.ourColor], saved.config.ourColor);
+    this.#book = this.#buildBook(saved.config.ourColor);
     this.#clock = setPaused(
       {
         ...createClock(saved.config.initialClockMs),
@@ -389,13 +429,17 @@ export class GameSession {
     }
 
     const nowMs = this.#now();
+    const pressure = hasClockPressure(
+      remainingMs(this.#clock, config.ourColor, nowMs),
+      remainingMs(this.#clock, oppositeColor(config.ourColor), nowMs),
+    );
     const budget = scaleBudget(
       computeThinkBudget({
         remainingMs: remainingMs(this.#clock, config.ourColor, nowMs),
         fullmoveNumber: Math.floor(this.#moves.length / 2) + 1,
         humanOverheadMs: config.humanOverheadMs,
       }),
-      this.#budgetFactor,
+      this.#budgetFactor * (pressure ? PRESSURE_BUDGET_FACTOR : 1),
     );
     const limits = ponderOutcome.hit ? creditPonderTime(budget, ponderOutcome.elapsedMs) : budget;
 
@@ -427,10 +471,43 @@ export class GameSession {
         hardMs: limits.hardMs,
         ponderHit: ponderOutcome.hit,
         powerLevel: this.#engine.powerLevel,
+        clockPressure: pressure,
         ponderedMs: Math.round(ponderOutcome.elapsedMs),
       },
       "search-finished",
     );
+
+    const antiDraw = this.#antiDraw
+      ? chooseAntiDrawMove({
+          fen: this.#chess.fen(),
+          seenPositions: this.#seenPositions(),
+          lines: result.lines,
+          marginCp: pressure ? PRESSURE_MARGIN_CP : DEFAULT_MARGIN_CP,
+        })
+      : null;
+    const chosen = antiDraw?.line;
+    const chosenMove = chosen?.principalVariation[0];
+    if (antiDraw && chosen && chosenMove && isLegal(chosenMove)) {
+      this.#logger.info(
+        {
+          reason: antiDraw.reason,
+          stockfishMove: result.bestMove,
+          stockfishScoreCp: result.scoreCp,
+          chosenMove,
+          chosenScoreCp: chosen.scoreCp,
+          clockPressure: pressure,
+        },
+        "anti-draw",
+      );
+      return {
+        uci: chosenMove,
+        source: ponderOutcome.hit ? "ponder-hit" : "search",
+        depth: chosen.depth,
+        scoreCp: chosen.scoreCp,
+        mateIn: chosen.mateIn,
+        ponderMove: chosen.principalVariation[1] ?? null,
+      };
+    }
 
     return {
       uci: result.bestMove,
@@ -440,6 +517,25 @@ export class GameSession {
       mateIn: result.mateIn,
       ponderMove: result.ponderMove,
     };
+  }
+
+  #buildBook(ourColor: Color): OpeningBook {
+    return withGeneratedBook(
+      buildOpeningBook(OPENING_LINES[ourColor], ourColor),
+      this.#generatedBook,
+      ourColor,
+    );
+  }
+
+  #seenPositions(): Map<string, number> {
+    const replay = new Chess();
+    const seen = new Map<string, number>([[positionKey(replay.fen()), 1]]);
+    for (const record of this.#moves) {
+      playMove(replay, record.uci);
+      const key = positionKey(replay.fen());
+      seen.set(key, (seen.get(key) ?? 0) + 1);
+    }
+    return seen;
   }
 
   async #collectPonder(lastOpponentUci: string | undefined): Promise<PonderOutcome> {

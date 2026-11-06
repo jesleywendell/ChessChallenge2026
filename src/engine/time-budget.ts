@@ -21,11 +21,12 @@ const MIN_HUMAN_RESERVE_MOVES = 60;
 const EMERGENCY_RESERVE_MS = 10_000;
 const MAX_SINGLE_MOVE_SHARE = 0.06;
 const HARD_TO_SOFT_RATIO = 2.5;
-const OPENING_LAST_MOVE = 10;
+const OPENING_LAST_MOVE = 14;
 const MIDDLEGAME_LAST_MOVE = 35;
+/** Meio-jogo (lances 15 a 35) é onde a partida se decide; no final as Syzygy ajudam. */
 const OPENING_MULTIPLIER = 0.8;
-const MIDDLEGAME_MULTIPLIER = 1.2;
-const ENDGAME_MULTIPLIER = 1;
+const MIDDLEGAME_MULTIPLIER = 1.4;
+const ENDGAME_MULTIPLIER = 0.75;
 const PANIC_SOFT_MS = 300;
 const PANIC_HARD_MS = 1_000;
 

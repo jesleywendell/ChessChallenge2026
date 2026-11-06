@@ -2,7 +2,7 @@ import { pino } from "pino";
 import { describe, expect, it, vi } from "vitest";
 import type { GameConfig } from "../shared/protocol";
 import { FakeEngine, type FakeOutcome } from "./fake-engine";
-import { GameSession } from "./game-session";
+import { GameSession, hasClockPressure } from "./game-session";
 import type { GameStore, SavedGame } from "./game-store";
 
 const silentLogger = pino({ level: "silent" });
@@ -38,6 +38,7 @@ const setup = (script: (moves: string[]) => FakeOutcome, store = createMemorySto
     logger: silentLogger,
     nowMs: () => nowMs,
     random: () => 0,
+    generatedBook: {},
   });
   return {
     engine,
@@ -426,5 +427,26 @@ describe("GameSession", () => {
 
       expect(session.getSnapshot().clock).toMatchObject({ paused: true, whiteMs: 25 * 60 * 1000 });
     });
+  });
+});
+
+describe("clock pressure", () => {
+  it("detects when the opponent is much shorter on time", () => {
+    expect(hasClockPressure(20 * 60_000, 6 * 60_000)).toBe(true);
+    expect(hasClockPressure(20 * 60_000, 15 * 60_000)).toBe(false);
+    expect(hasClockPressure(12 * 60_000, 9 * 60_000)).toBe(false);
+  });
+
+  it("plays faster when the opponent is in time trouble", async () => {
+    const softOf = async (opponentMs: number) => {
+      const { session, engine } = setup(() => ({ bestMove: "e7e5" }));
+      await session.startGame(config({ ourColor: "black" }));
+      session.setClock("white", opponentMs);
+      session.applyOpponentMove("a3");
+      await vi.waitFor(() => expect(moveCount(session)).toBe(2));
+      const [call] = engine.calls;
+      return call?.limits.kind === "adaptive" ? call.limits.softMs : 0;
+    };
+    expect(await softOf(3 * 60_000)).toBeLessThan(await softOf(25 * 60_000));
   });
 });

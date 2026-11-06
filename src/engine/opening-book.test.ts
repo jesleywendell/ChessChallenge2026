@@ -1,7 +1,8 @@
 import { Chess } from "chess.js";
 import { describe, expect, it } from "vitest";
 import type { Color } from "../shared/protocol";
-import { buildOpeningBook, pickBookMove } from "./opening-book";
+import { loadGeneratedBook } from "./generated-book-loader";
+import { buildOpeningBook, pickBookMove, withGeneratedBook } from "./opening-book";
 import { OPENING_LINES } from "./opening-lines";
 
 const START_FEN = new Chess().fen();
@@ -65,5 +66,42 @@ describe("pickBookMove", () => {
 
     expect(lowRoll).toBe("f1b5");
     expect(highRoll).not.toBe(lowRoll);
+  });
+});
+
+describe("withGeneratedBook", () => {
+  it("lets the generated book override and extend the handwritten one", () => {
+    const start = new Chess().fen().split(" ").slice(0, 4).join(" ");
+    const book = withGeneratedBook(
+      buildOpeningBook(["e4 e5"], "white"),
+      { white: { [start]: "d2d4" } },
+      "white",
+    );
+    expect(pickBookMove(book, new Chess().fen(), () => 0)).toBe("d2d4");
+  });
+
+  it("ignores the other color's entries", () => {
+    const start = new Chess().fen().split(" ").slice(0, 4).join(" ");
+    const book = withGeneratedBook(
+      buildOpeningBook(["e4 e5"], "white"),
+      { black: { [start]: "d2d4" } },
+      "white",
+    );
+    expect(pickBookMove(book, new Chess().fen(), () => 0)).toBe("e2e4");
+  });
+});
+
+describe("generated-book.json", () => {
+  it("contains only legal moves", () => {
+    const generated = loadGeneratedBook();
+    for (const color of ["white", "black"] as const) {
+      for (const [key, uci] of Object.entries(generated[color] ?? {})) {
+        const chess = new Chess(`${key} 0 1`);
+        const legal = chess
+          .moves({ verbose: true })
+          .map((m) => `${m.from}${m.to}${m.promotion ?? ""}`);
+        expect(legal, `${color} ${key}`).toContain(uci);
+      }
+    }
   });
 });

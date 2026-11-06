@@ -1,5 +1,7 @@
 # Modificações sobre o Stockfish
 
+> Resumo para a arguição: veja também [DECLARACAO.md](../DECLARACAO.md).
+
 Este documento descreve o que o projeto acrescenta ao Stockfish, conforme o requisito do
 regulamento do Chess Challenge III de realizar modificações ou melhorias significativas.
 

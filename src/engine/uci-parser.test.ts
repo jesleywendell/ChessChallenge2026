@@ -22,6 +22,7 @@ describe("parseUciLine", () => {
         nodes: 1234567,
         nodesPerSecond: 5000000,
         timeMs: 246,
+        multipv: 1,
         principalVariation: ["e2e4", "e7e5", "g1f3"],
       },
     });
